@@ -6,23 +6,19 @@
   <title>PropVista — Performance-Optimised Property Carousel Demo</title>
   <meta name="description" content="A performance demo showing how a real-estate hero/carousel section should be built — zero layout shift, fast LCP, no render-blocking JS." />
 
-  <!-- Preconnect to image CDN so first LCP image loads fast -->
-  <link rel="preconnect" href="https://picsum.photos" />
-
-  <!-- Preload the FIRST hero image so it hits the screen immediately (critical for LCP) -->
-  <link rel="preload" as="image" href="https://picsum.photos/id/1029/1400/700.webp" />
-
-  <!-- Google Fonts — display=swap keeps font from blocking render -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
-    rel="stylesheet"
-  />
+  <!-- Preconnect + preload the first hero image — critical for LCP -->
+  <link rel="preconnect" href="https://picsum.photos" crossorigin />
+  <link rel="preconnect" href="https://fastly.picsum.photos" crossorigin />
+  <!-- Preload the exact src used in the <img> tag (NOT the <source>) so the browser hint matches -->
+  <link rel="preload" as="image" href="https://picsum.photos/id/1029/1400/787.jpg" fetchpriority="high" />
 
   <style>
     /* ─── Design Tokens ──────────────────────────────── */
     :root {
+      /* System font stack — no external font request, zero render-blocking */
+      --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system,
+                   BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial,
+                   sans-serif;
       --clr-bg:        #0f172a;
       --clr-surface:   #1e293b;
       --clr-accent:    #f59e0b;
@@ -40,7 +36,7 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html { scroll-behavior: smooth; }
     body {
-      font-family: 'Inter', system-ui, sans-serif;
+      font-family: var(--font-sans);
       background: var(--clr-bg);
       color: var(--clr-text);
       -webkit-font-smoothing: antialiased;
@@ -501,15 +497,16 @@
 
           <!-- Slide 1 — NO lazy load: this is the LCP image -->
           <div class="carousel-slide is-active" role="listitem">
-            <picture>
-              <source srcset="https://picsum.photos/id/1029/1400/787.webp" type="image/webp" />
-              <img
-                src="https://picsum.photos/id/1029/1400/787.jpg"
-                alt="Panoramic cityscape view — featured luxury apartment"
-                width="1400" height="787"
-                fetchpriority="high"
-              />
-            </picture>
+            <!-- No <picture> wrapper on slide 1: browser will always pick the
+               <img> src, and this makes the preload link match exactly,
+               giving fetchpriority=high full effect for LCP -->
+            <img
+              src="https://picsum.photos/id/1029/1400/787.jpg"
+              alt="Panoramic cityscape view — featured luxury apartment"
+              width="1400" height="787"
+              fetchpriority="high"
+              decoding="async"
+            />
             <div class="slide-overlay" aria-hidden="true"></div>
             <div class="slide-caption">
               <span class="slide-badge">New Launch</span>
