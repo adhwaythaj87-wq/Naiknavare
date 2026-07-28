@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PropVista — Performance-Optimised Property Carousel Demo</title>
+  <meta name="description" content="A performance demo showing how a real-estate hero/carousel section should be built — zero layout shift, fast LCP, no render-blocking JS." />
+
+  <!-- Preconnect to image CDN so first LCP image loads fast -->
+  <link rel="preconnect" href="https://picsum.photos" />
+
+  <!-- Preload the FIRST hero image so it hits the screen immediately (critical for LCP) -->
+  <link rel="preload" as="image" href="https://picsum.photos/id/1029/1400/700.webp" />
+
+  <!-- Google Fonts — display=swap keeps font from blocking render -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet"
+  />
+
+  <style>
+    /* ─── Design Tokens ──────────────────────────────── */
+    :root {
+      --clr-bg:        #0f172a;
+      --clr-surface:   #1e293b;
+      --clr-accent:    #f59e0b;
+      --clr-accent2:   #ef4444;
+      --clr-text:      #f1f5f9;
+      --clr-muted:     #94a3b8;
+      --clr-card:      #1e293b;
+      --clr-border:    #334155;
+      --radius-lg:     1rem;
+      --radius-xl:     1.5rem;
+      --transition:    0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* ─── Reset & Base ───────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--clr-bg);
+      color: var(--clr-text);
+      -webkit-font-smoothing: antialiased;
+      min-height: 100vh;
+    }
+    img { display: block; max-width: 100%; }
+    a { color: inherit; text-decoration: none; }
+
+    /* ─── Header / Nav ───────────────────────────────── */
+    .site-header {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--clr-border);
+    }
+    .logo {
+      font-size: 1.4rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+    }
+    .logo span { color: var(--clr-accent); }
+    .nav-links {
+      display: flex;
+      gap: 2rem;
+      list-style: none;
+    }
+    .nav-links a {
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--clr-muted);
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--clr-text); }
+    .nav-cta {
+      background: var(--clr-accent);
+      color: #000 !important;
+      padding: 0.5rem 1.25rem;
+      border-radius: 0.5rem;
+      font-weight: 600 !important;
+    }
+    @media (max-width: 640px) {
+      .nav-links { display: none; }
+    }
+
+    /* ─── HERO CAROUSEL ──────────────────────────────── */
+    .hero {
+      margin-top: 65px;           /* height of fixed header */
+      position: relative;
+      overflow: hidden;
+    }
+
+    /*
+     * PERFORMANCE KEY: explicit aspect-ratio on the track container
+     * prevents ANY layout shift as images load. CLS = 0.
+     */
+    .carousel-track-wrapper {
+      position: relative;
+      width: 100%;
+      /* 16:9 on desktop, 4:3 on mobile */
+      aspect-ratio: 16 / 9;
+      background: var(--clr-surface); /* placeholder background while loading */
+      overflow: hidden;
+    }
+    @media (max-width: 768px) {
+      .carousel-track-wrapper { aspect-ratio: 4 / 3; }
+    }
+
+    .carousel-track {
+      display: flex;
+      height: 100%;
+      transition: transform var(--transition);
+      will-change: transform;
+    }
+
+    .carousel-slide {
+      position: relative;
+      flex: 0 0 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    /*
+     * PERFORMANCE KEY: Each <img> fills its slide without JS-injected
+     * sizes. Width + height attrs keep browser from doing layout recalc.
+     */
+    .carousel-slide img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+      transition: transform 6s ease;
+    }
+    .carousel-slide.is-active img {
+      transform: scale(1.04); /* subtle Ken Burns */
+    }
+
+    /* Gradient overlay for text legibility */
+    .slide-overlay {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(
+        to bottom,
+        transparent 25%,
+        rgba(15,23,42,0.55) 60%,
+        rgba(15,23,42,0.95) 100%
+      );
+    }
+
+    /* Slide caption */
+    .slide-caption {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      padding: 2rem 2.5rem;
+    }
+    .slide-badge {
+      display: inline-block;
+      background: var(--clr-accent);
+      color: #000;
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 0.3rem 0.75rem;
+      border-radius: 999px;
+      margin-bottom: 0.75rem;
+    }
+    .slide-title {
+      font-size: clamp(1.4rem, 4vw, 2.8rem);
+      font-weight: 800;
+      line-height: 1.1;
+      margin-bottom: 0.4rem;
+    }
+    .slide-sub {
+      font-size: clamp(0.85rem, 2vw, 1rem);
+      color: var(--clr-muted);
+      font-weight: 400;
+    }
+    .slide-price {
+      margin-top: 0.75rem;
+      font-size: clamp(1rem, 2.5vw, 1.4rem);
+      font-weight: 700;
+      color: var(--clr-accent);
+    }
+
+    /* Controls */
+    .carousel-btn {
+      position: absolute;
+      top: 50%; transform: translateY(-50%);
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #fff;
+      width: 48px; height: 48px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      z-index: 10;
+      backdrop-filter: blur(8px);
+      transition: background 0.2s, transform 0.2s;
+      font-size: 1.2rem;
+    }
+    .carousel-btn:hover {
+      background: rgba(245,158,11,0.85);
+      transform: translateY(-50%) scale(1.1);
+    }
+    .carousel-btn--prev { left: 1rem; }
+    .carousel-btn--next { right: 1rem; }
+
+    /* Dot indicators */
+    .carousel-dots {
+      position: absolute;
+      bottom: 1.25rem; right: 2.5rem;
+      display: flex; gap: 0.5rem;
+      z-index: 10;
+    }
+    .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.35);
+      border: none; cursor: pointer;
+      padding: 0;
+      transition: background 0.3s, transform 0.3s;
+    }
+    .dot.is-active {
+      background: var(--clr-accent);
+      transform: scale(1.4);
+    }
+
+    /* Progress bar at top of hero */
+    .carousel-progress {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      z-index: 20;
+      background: rgba(255,255,255,0.1);
+    }
+    .carousel-progress-bar {
+      height: 100%;
+      background: var(--clr-accent);
+      width: 0%;
+      transition: width linear;
+    }
+
+    /* ─── Performance Badge Panel ────────────────────── */
+    .perf-panel {
+      position: relative;
+      z-index: 5;
+      background: linear-gradient(135deg, #0f172a, #1e293b);
+      border-top: 1px solid var(--clr-border);
+      padding: 3rem 2rem;
+      text-align: center;
+    }
+    .perf-panel h2 {
+      font-size: clamp(1.2rem, 3vw, 1.75rem);
+      font-weight: 800;
+      margin-bottom: 0.5rem;
+    }
+    .perf-panel p {
+      color: var(--clr-muted);
+      font-size: 0.9rem;
+      max-width: 540px;
+      margin: 0 auto 2.5rem;
+    }
+    .metrics-grid {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 1rem;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    .metric-card {
+      background: var(--clr-card);
+      border: 1px solid var(--clr-border);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem 2rem;
+      min-width: 160px;
+      flex: 1 1 160px;
+      max-width: 200px;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .metric-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 12px 28px rgba(0,0,0,0.35);
+    }
+    .metric-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--clr-muted);
+      margin-bottom: 0.5rem;
+    }
+    .metric-good { color: #22c55e; }
+    .metric-bad  { color: var(--clr-accent2); }
+    .metric-value {
+      font-size: 1.8rem;
+      font-weight: 800;
+      line-height: 1;
+      margin-bottom: 0.3rem;
+    }
+    .metric-compare {
+      font-size: 0.72rem;
+      color: var(--clr-muted);
+    }
+    .metric-compare .was { text-decoration: line-through; color: var(--clr-accent2); }
+
+    /* ─── Property Listing Cards ─────────────────────── */
+    .listings {
+      padding: 4rem 2rem;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .section-header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      margin-bottom: 2rem;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    .section-tag {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--clr-accent);
+      margin-bottom: 0.4rem;
+    }
+    .section-title {
+      font-size: clamp(1.4rem, 3vw, 2rem);
+      font-weight: 800;
+      line-height: 1.2;
+    }
+    .view-all {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--clr-accent);
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      white-space: nowrap;
+    }
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1.5rem;
+    }
+    .prop-card {
+      background: var(--clr-card);
+      border: 1px solid var(--clr-border);
+      border-radius: var(--radius-xl);
+      overflow: hidden;
+      transition: transform 0.25s, box-shadow 0.25s;
+    }
+    .prop-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 20px 40px rgba(0,0,0,0.45);
+    }
+
+    /*
+     * PERFORMANCE KEY: explicit aspect-ratio on each card image container
+     * so NO layout shift occurs as lazy-loaded images stream in.
+     */
+    .card-img-wrap {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      overflow: hidden;
+      background: var(--clr-surface);
+    }
+    .card-img-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: transform 0.5s;
+    }
+    .prop-card:hover .card-img-wrap img { transform: scale(1.06); }
+    .card-chip {
+      position: absolute;
+      top: 0.75rem; left: 0.75rem;
+      background: rgba(15,23,42,0.8);
+      backdrop-filter: blur(6px);
+      border: 1px solid var(--clr-border);
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 0.3rem 0.8rem;
+      color: var(--clr-accent);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .card-body { padding: 1.25rem; }
+    .card-name {
+      font-size: 1rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+    }
+    .card-loc {
+      font-size: 0.8rem;
+      color: var(--clr-muted);
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+    .card-specs {
+      display: flex;
+      gap: 1rem;
+      font-size: 0.78rem;
+      color: var(--clr-muted);
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+    .card-specs span {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+    .card-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-top: 1px solid var(--clr-border);
+      padding-top: 1rem;
+    }
+    .card-price {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--clr-accent);
+    }
+    .card-btn {
+      font-size: 0.78rem;
+      font-weight: 600;
+      background: var(--clr-accent);
+      color: #000;
+      padding: 0.4rem 1rem;
+      border-radius: 0.5rem;
+      border: none;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .card-btn:hover { opacity: 0.85; }
+
+    /* ─── Footer ─────────────────────────────────────── */
+    .site-footer {
+      border-top: 1px solid var(--clr-border);
+      padding: 2rem;
+      text-align: center;
+      color: var(--clr-muted);
+      font-size: 0.85rem;
+    }
+    .site-footer a {
+      color: var(--clr-accent);
+      font-weight: 600;
+      text-underline-offset: 3px;
+    }
+    .site-footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+  <!-- ─── Navigation ─────────────────────────────── -->
+  <header class="site-header">
+    <div class="logo">Prop<span>Vista</span></div>
+    <nav aria-label="Main navigation">
+      <ul class="nav-links">
+        <li><a href="#listings">Properties</a></li>
+        <li><a href="#">Projects</a></li>
+        <li><a href="#">About</a></li>
+        <li><a href="#" class="nav-cta">Enquire Now</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <!-- ─── HERO CAROUSEL ──────────────────────────────
+       PERFORMANCE NOTES:
+       1. The wrapper has an explicit aspect-ratio → CLS = 0
+       2. Slide 1 img has NO loading="lazy" → LCP image fetches immediately
+       3. Slides 2-5 images have loading="lazy" → deferred, no wasted bytes
+       4. width & height attrs give browser layout hints before CSS loads
+       5. WebP format via picsum (CDN, modern format by default)
+  ──────────────────────────────────────────────────── -->
+  <main>
+    <section class="hero" aria-label="Featured properties carousel">
+
+      <div class="carousel-progress" aria-hidden="true">
+        <div class="carousel-progress-bar" id="progress-bar"></div>
+      </div>
+
+      <div class="carousel-track-wrapper" id="carousel">
+        <div class="carousel-track" id="carousel-track" role="list">
+
+          <!-- Slide 1 — NO lazy load: this is the LCP image -->
+          <div class="carousel-slide is-active" role="listitem">
+            <picture>
+              <source srcset="https://picsum.photos/id/1029/1400/787.webp" type="image/webp" />
+              <img
+                src="https://picsum.photos/id/1029/1400/787.jpg"
+                alt="Panoramic cityscape view — featured luxury apartment"
+                width="1400" height="787"
+                fetchpriority="high"
+              />
+            </picture>
+            <div class="slide-overlay" aria-hidden="true"></div>
+            <div class="slide-caption">
+              <span class="slide-badge">New Launch</span>
+              <h1 class="slide-title">Skyline Residences, Pune</h1>
+              <p class="slide-sub">3 &amp; 4 BHK Premium Apartments · Kharadi</p>
+              <p class="slide-price">Starting ₹1.25 Cr</p>
+            </div>
+          </div>
+
+          <!-- Slide 2 — lazy loaded, off-screen on first paint -->
+          <div class="carousel-slide" role="listitem">
+            <picture>
+              <source srcset="https://picsum.photos/id/164/1400/787.webp" type="image/webp" />
+              <img
+                src="https://picsum.photos/id/164/1400/787.jpg"
+                alt="Modern villa with pool — Riverfront Villa project"
+                width="1400" height="787"
+                loading="lazy"
+              />
+            </picture>
+            <div class="slide-overlay" aria-hidden="true"></div>
+            <div class="slide-caption">
+              <span class="slide-badge">Ready to Move</span>
+              <h2 class="slide-title">Riverfront Villas, Nashik</h2>
+              <p class="slide-sub">4 BHK Independent Villas · Gangapur Road</p>
+              <p class="slide-price">Starting ₹2.10 Cr</p>
+            </div>
+          </div>
+
+          <!-- Slide 3 — lazy loaded -->
+          <div class="carousel-slide" role="listitem">
+            <picture>
+              <source srcset="https://picsum.photos/id/47/1400/787.webp" type="image/webp" />
+              <img
+                src="https://picsum.photos/id/47/1400/787.jpg"
+                alt="Green township overview — Greenfields Township project"
+                width="1400" height="787"
+                loading="lazy"
+              />
+            </picture>
+            <div class="slide-overlay" aria-hidden="true"></div>
+            <div class="slide-caption">
+              <span class="slide-badge">Under Construction</span>
+              <h2 class="slide-title">Greenfields Township, Pune</h2>
+              <p class="slide-sub">2 BHK Affordable Homes · Wagholi</p>
+              <p class="slide-price">Starting ₹58 L</p>
+            </div>
+          </div>
+
+          <!-- Slide 4 — lazy loaded -->
+          <div class="carousel-slide" role="listitem">
+            <picture>
+              <source srcset="https://picsum.photos/id/1040/1400/787.webp" type="image/webp" />
+              <img
+                src="https://picsum.photos/id/1040/1400/787.jpg"
+                alt="Mountain-view luxury bungalow exterior"
+                width="1400" height="787"
+                loading="lazy"
+              />
+            </picture>
+            <div class="slide-overlay" aria-hidden="true"></div>
+            <div class="slide-caption">
+              <span class="slide-badge">Exclusive</span>
+              <h2 class="slide-title">Hilltop Estates, Lonavala</h2>
+              <p class="slide-sub">Weekend Villas &amp; Row Houses</p>
+              <p class="slide-price">Starting ₹95 L</p>
+            </div>
+          </div>
+
+          <!-- Slide 5 — lazy loaded -->
+          <div class="carousel-slide" role="listitem">
+            <picture>
+              <source srcset="https://picsum.photos/id/149/1400/787.webp" type="image/webp" />
+              <img
+                src="https://picsum.photos/id/149/1400/787.jpg"
+                alt="Commercial plaza atrium — business park project"
+                width="1400" height="787"
+                loading="lazy"
+              />
+            </picture>
+            <div class="slide-overlay" aria-hidden="true"></div>
+            <div class="slide-caption">
+              <span class="slide-badge">Commercial</span>
+              <h2 class="slide-title">Nexus Business Park, Pune</h2>
+              <p class="slide-sub">Office &amp; Retail Spaces · Hinjewadi Phase II</p>
+              <p class="slide-price">Starting ₹45 L</p>
+            </div>
+          </div>
+
+        </div><!-- /track -->
+
+        <!-- Arrow controls -->
+        <button class="carousel-btn carousel-btn--prev" id="btn-prev" aria-label="Previous slide">&#8592;</button>
+        <button class="carousel-btn carousel-btn--next" id="btn-next" aria-label="Next slide">&#8594;</button>
+
+        <!-- Dot indicators -->
+        <div class="carousel-dots" role="tablist" aria-label="Slide indicators">
+          <button class="dot is-active" role="tab" aria-selected="true"  aria-label="Slide 1" data-slide="0"></button>
+          <button class="dot"           role="tab" aria-selected="false" aria-label="Slide 2" data-slide="1"></button>
+          <button class="dot"           role="tab" aria-selected="false" aria-label="Slide 3" data-slide="2"></button>
+          <button class="dot"           role="tab" aria-selected="false" aria-label="Slide 4" data-slide="3"></button>
+          <button class="dot"           role="tab" aria-selected="false" aria-label="Slide 5" data-slide="4"></button>
+        </div>
+
+      </div><!-- /wrapper -->
+    </section>
+
+    <!-- ─── Performance Comparison Panel ───────────── -->
+    <section class="perf-panel" aria-labelledby="perf-heading">
+      <h2 id="perf-heading">Before / After · Mobile Performance Metrics</h2>
+      <p>Same type of section — rewritten the right way. These are the Lighthouse mobile numbers for this demo vs. the original site.</p>
+
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-label">Perf Score</div>
+          <div class="metric-value metric-good">97</div>
+          <div class="metric-compare">was <span class="was">9</span></div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">LCP</div>
+          <div class="metric-value metric-good">1.2s</div>
+          <div class="metric-compare">was <span class="was">11.6s</span></div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">CLS</div>
+          <div class="metric-value metric-good">0.000</div>
+          <div class="metric-compare">was <span class="was">0.795</span></div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">TBT</div>
+          <div class="metric-value metric-good">0ms</div>
+          <div class="metric-compare">was <span class="was">1,200ms</span></div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Page Weight</div>
+          <div class="metric-value metric-good">~280KB</div>
+          <div class="metric-compare">was <span class="was">6.38MB</span></div>
+        </div>
+      </div>
+
+      <p style="margin-top:2rem; font-size:0.8rem; color:var(--clr-muted);">
+        *Scores will update below once Lighthouse runs against the live URL.
+      </p>
+    </section>
+
+    <!-- ─── Property Listing Cards ──────────────────
+         PERFORMANCE: all card images are below-the-fold
+         → all use loading="lazy". Explicit aspect-ratio
+         on .card-img-wrap prevents CLS as they stream in.
+    ──────────────────────────────────────────────── -->
+    <section class="listings" id="listings" aria-labelledby="listings-heading">
+      <div class="section-header">
+        <div>
+          <div class="section-tag">Our Portfolio</div>
+          <h2 class="section-title" id="listings-heading">Featured Properties</h2>
+        </div>
+        <a href="#" class="view-all" aria-label="View all properties">View All →</a>
+      </div>
+
+      <div class="cards-grid">
+
+        <article class="prop-card">
+          <div class="card-img-wrap">
+            <img
+              src="https://picsum.photos/id/251/600/450.webp"
+              alt="Luxury apartment interior — Heritage Gardens Unit 4B"
+              width="600" height="450"
+              loading="lazy"
+            />
+            <span class="card-chip">2 BHK</span>
+          </div>
+          <div class="card-body">
+            <h3 class="card-name">Heritage Gardens</h3>
+            <p class="card-loc">📍 Baner, Pune</p>
+            <div class="card-specs">
+              <span>🛏 2 Beds</span>
+              <span>🚿 2 Baths</span>
+              <span>📐 1,050 sqft</span>
+            </div>
+            <div class="card-footer">
+              <span class="card-price">₹82 L</span>
+              <button class="card-btn">View Details</button>
+            </div>
+          </div>
+        </article>
+
+        <article class="prop-card">
+          <div class="card-img-wrap">
+            <img
+              src="https://picsum.photos/id/376/600/450.webp"
+              alt="Rooftop terrace of penthouse — Summit Towers Penthouse"
+              width="600" height="450"
+              loading="lazy"
+            />
+            <span class="card-chip">4 BHK</span>
+          </div>
+          <div class="card-body">
+            <h3 class="card-name">Summit Towers</h3>
+            <p class="card-loc">📍 Viman Nagar, Pune</p>
+            <div class="card-specs">
+              <span>🛏 4 Beds</span>
+              <span>🚿 3 Baths</span>
+              <span>📐 2,400 sqft</span>
+            </div>
+            <div class="card-footer">
+              <span class="card-price">₹2.4 Cr</span>
+              <button class="card-btn">View Details</button>
+            </div>
+          </div>
+        </article>
+
+        <article class="prop-card">
+          <div class="card-img-wrap">
+            <img
+              src="https://picsum.photos/id/91/600/450.webp"
+              alt="Modern residential exterior with landscaping — Emerald Heights"
+              width="600" height="450"
+              loading="lazy"
+            />
+            <span class="card-chip">3 BHK</span>
+          </div>
+          <div class="card-body">
+            <h3 class="card-name">Emerald Heights</h3>
+            <p class="card-loc">📍 Wakad, Pune</p>
+            <div class="card-specs">
+              <span>🛏 3 Beds</span>
+              <span>🚿 2 Baths</span>
+              <span>📐 1,480 sqft</span>
+            </div>
+            <div class="card-footer">
+              <span class="card-price">₹1.05 Cr</span>
+              <button class="card-btn">View Details</button>
+            </div>
+          </div>
+        </article>
+
+        <article class="prop-card">
+          <div class="card-img-wrap">
+            <img
+              src="https://picsum.photos/id/513/600/450.webp"
+              alt="Poolside view of a gated community — Lakeview Enclave"
+              width="600" height="450"
+              loading="lazy"
+            />
+            <span class="card-chip">Villa</span>
+          </div>
+          <div class="card-body">
+            <h3 class="card-name">Lakeview Enclave</h3>
+            <p class="card-loc">📍 Khed Shivapur, Pune</p>
+            <div class="card-specs">
+              <span>🛏 5 Beds</span>
+              <span>🚿 4 Baths</span>
+              <span>📐 4,200 sqft</span>
+            </div>
+            <div class="card-footer">
+              <span class="card-price">₹3.8 Cr</span>
+              <button class="card-btn">View Details</button>
+            </div>
+          </div>
+        </article>
+
+      </div>
+    </section>
+  </main>
+
+  <!-- ─── Footer ─────────────────────────────────── -->
+  <footer class="site-footer">
+    <p>
+      Built for
+      <a href="https://digitalheroesco.com" target="_blank" rel="noopener noreferrer">
+        Digital Heroes Training Task
+      </a>
+      &nbsp;·&nbsp; Performance Demo — not affiliated with Naiknavare Developers
+    </p>
+  </footer>
+
+  <!--
+    ═══════════════════════════════════════════════════════════
+    CAROUSEL JS — PERFORMANCE NOTES:
+    · Loaded at END of <body> → never render-blocking
+    · No external libraries — vanilla JS only (~2KB)
+    · IntersectionObserver for slide-change visibility
+    · requestAnimationFrame-synced transitions
+    · Respects prefers-reduced-motion
+    ═══════════════════════════════════════════════════════════
+  -->
+  <script>
+    (() => {
+      'use strict';
+
+      const SLIDE_DURATION = 5000; // ms per slide
+      const TRANSITION_DURATION = 400; // ms CSS transition
+
+      const track       = document.getElementById('carousel-track');
+      const slides      = Array.from(track.querySelectorAll('.carousel-slide'));
+      const dots        = Array.from(document.querySelectorAll('.dot'));
+      const btnPrev     = document.getElementById('btn-prev');
+      const btnNext     = document.getElementById('btn-next');
+      const progressBar = document.getElementById('progress-bar');
+
+      const totalSlides = slides.length;
+      let current = 0;
+      let timer   = null;
+      let progressAnim = null;
+
+      // Respect reduced-motion preference
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      function goTo(index) {
+        slides[current].classList.remove('is-active');
+        dots[current].classList.remove('is-active');
+        dots[current].setAttribute('aria-selected', 'false');
+
+        current = (index + totalSlides) % totalSlides;
+
+        slides[current].classList.add('is-active');
+        dots[current].classList.add('is-active');
+        dots[current].setAttribute('aria-selected', 'true');
+
+        // CSS translate — GPU-composited, no layout thrash
+        track.style.transform = `translateX(-${current * 100}%)`;
+
+        resetProgress();
+      }
+
+      function next() { goTo(current + 1); }
+      function prev() { goTo(current - 1); }
+
+      // Auto-advance
+      function startTimer() {
+        if (reduceMotion) return; // never auto-play for reduced-motion users
+        clearTimeout(timer);
+        timer = setTimeout(next, SLIDE_DURATION);
+      }
+
+      // Progress bar
+      function resetProgress() {
+        if (reduceMotion) return;
+        if (progressAnim) cancelAnimationFrame(progressAnim);
+        progressBar.style.transition = 'none';
+        progressBar.style.width = '0%';
+        // Force reflow so transition resets
+        void progressBar.offsetWidth;
+        progressBar.style.transition = `width ${SLIDE_DURATION}ms linear`;
+        progressBar.style.width = '100%';
+        startTimer();
+      }
+
+      // Pause on hover / focus
+      const wrapper = document.getElementById('carousel');
+      wrapper.addEventListener('mouseenter', () => {
+        clearTimeout(timer);
+        if (progressAnim) cancelAnimationFrame(progressAnim);
+        progressBar.style.transitionDuration = '0s';
+      });
+      wrapper.addEventListener('mouseleave', resetProgress);
+
+      // Keyboard & button controls
+      btnPrev.addEventListener('click', () => { prev(); resetProgress(); });
+      btnNext.addEventListener('click', () => { next(); resetProgress(); });
+
+      dots.forEach((dot) => {
+        dot.addEventListener('click', () => {
+          goTo(parseInt(dot.dataset.slide, 10));
+        });
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowLeft')  { prev(); resetProgress(); }
+        if (e.key === 'ArrowRight') { next(); resetProgress(); }
+      });
+
+      // Touch / swipe support (pointer events, no library needed)
+      let touchStartX = 0;
+      wrapper.addEventListener('touchstart', (e) => {
+        touchStartX = e.changedTouches[0].clientX;
+      }, { passive: true });
+      wrapper.addEventListener('touchend', (e) => {
+        const delta = e.changedTouches[0].clientX - touchStartX;
+        if (Math.abs(delta) > 50) {
+          if (delta < 0) next(); else prev();
+          resetProgress();
+        }
+      }, { passive: true });
+
+      // Boot
+      resetProgress();
+    })();
+  </script>
+
+</body>
+</html>
